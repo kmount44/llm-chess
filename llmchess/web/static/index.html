@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>llm-chess — live</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="dot" id="link-dot"></span>
+    <span class="brand-name">llm-chess</span>
+    <span class="brand-sub">arbitrated MCP match</span>
+  </div>
+  <div class="topbar-actions">
+    <span class="pill" id="status-pill">connecting…</span>
+    <span class="pill mono" id="game-pill">—</span>
+    <button class="btn" id="btn-pgn">PGN</button>
+    <button class="btn primary" id="btn-new">New game</button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <section class="panel board-panel">
+    <div class="player-strip" id="strip-black">
+      <span class="swatch black"></span>
+      <span class="player-name">—</span>
+      <span class="player-status">—</span>
+      <span class="clock" data-clock="black">--:--</span>
+    </div>
+
+    <div class="board-wrap">
+      <div class="board-shell">
+        <div class="files" id="files-top"></div>
+        <div class="board-row">
+          <div class="ranks" id="ranks-left"></div>
+          <div class="board" id="board"></div>
+          <div class="ranks" id="ranks-right"></div>
+        </div>
+        <div class="files" id="files-bottom"></div>
+      </div>
+    </div>
+
+    <div class="player-strip" id="strip-white">
+      <span class="swatch white"></span>
+      <span class="player-name">—</span>
+      <span class="player-status">—</span>
+      <span class="clock" data-clock="white">--:--</span>
+    </div>
+
+    <div class="captured-row">
+      <span class="cap-label">captured</span>
+      <span class="cap-set" id="cap-white" title="pieces white has captured"></span>
+      <span class="cap-divider"></span>
+      <span class="cap-set" id="cap-black" title="pieces black has captured"></span>
+    </div>
+  </section>
+
+  <section class="side">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Moves</h2>
+        <span class="hint" id="ply-hint">no moves yet</span>
+      </div>
+      <ol class="movelist" id="movelist"></ol>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Agents</h2><span class="hint">live status</span></div>
+      <div class="agents" id="agents"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Feed</h2><span class="hint">arbiter events</span></div>
+      <div class="feed" id="feed"></div>
+    </div>
+  </section>
+
+  <section class="panel transcript-panel">
+    <div class="panel-head">
+      <h2>Agent transcripts</h2>
+      <span class="hint">what each player said on its own turn — neither can see the other</span>
+    </div>
+    <div class="transcripts" id="transcripts"></div>
+  </section>
+
+</main>
+
+<div class="modal" id="modal" hidden>
+  <div class="modal-card">
+    <h2>New game</h2>
+    <div class="field"><label>White</label>
+      <select id="new-white"><option>hermes</option><option>claude</option></select></div>
+    <div class="field"><label>Black</label>
+      <select id="new-black"><option>claude</option><option>hermes</option></select></div>
+    <div class="field"><label>Time control</label>
+      <select id="new-tc">
+        <option value="">untimed</option>
+        <option value="300+3">5+3</option>
+        <option value="600+0">10+0</option>
+        <option value="900+10">15+10</option>
+      </select></div>
+    <div class="field check"><label><input type="checkbox" id="new-autostart" checked> start the driver immediately</label></div>
+    <div class="modal-actions">
+      <button class="btn" id="new-cancel">Cancel</button>
+      <button class="btn primary" id="new-start">Start game</button>
+    </div>
+    <p class="modal-note">Both agents must have the <code>chess</code> MCP server registered. Colours are assigned by the game record, not by the server.</p>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,1 @@
+"""Spectator web UI for llm-chess."""

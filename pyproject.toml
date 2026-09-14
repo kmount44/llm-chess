@@ -1,0 +1,33 @@
+[project]
+name = "llm-chess"
+version = "0.1.0"
+description = "LLM-vs-LLM chess over MCP: an arbiter server that two autonomous agents play through, with a live spectator GUI."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "python-chess>=1.11,<2",
+    "mcp>=2,<3",
+    "fastapi>=0.110",
+    # uvicorn alone ships no WebSocket transport: the live view needs one of
+    # websockets/wsproto installed, or every upgrade request 404s at handshake.
+    "uvicorn[standard]>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[project.scripts]
+chess-arbiter = "llmchess.mcp_server:main"
+chess-gui = "llmchess.web.app:main"
+chess-play = "llmchess.driver:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["llmchess"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
