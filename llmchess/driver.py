@@ -342,10 +342,26 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if args.dry_run:
-        args.script = args.script.split() if isinstance(args.script, str) else args.script
+    # --script is a single SAN line covering both sides; normalise it once,
+    # whoever is playing it (the default string is a game, not a move).
+    if isinstance(args.script, str):
+        args.script = args.script.split()
     if args.white == args.black:
         raise SystemExit("--white and --black must be different agents")
+
+    # Agents reach the game through their own MCP server process, and Hermes
+    # spawns MCP subprocesses with a filtered environment — LLM_CHESS_HOME does
+    # not reach them. Warn rather than silently playing against an empty store.
+    custom_home = os.environ.get("LLM_CHESS_HOME")
+    if custom_home:
+        print(
+            f"note: LLM_CHESS_HOME={custom_home} is set. Agent MCP servers will not\n"
+            "      inherit it (Hermes filters the environment for MCP subprocesses),\n"
+            "      so agents may look at a different store. Re-declare it on the MCP\n"
+            "      server entry with `hermes mcp add ... --env LLM_CHESS_HOME=...`,\n"
+            "      or unset it and use the default ~/.llm-chess.",
+            file=sys.stderr,
+        )
 
     driver = Driver(args)
     game_id = driver.prepare()

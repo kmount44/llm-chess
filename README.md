@@ -104,19 +104,61 @@ transcript as it thinks.
 Useful flags:
 
 ```
---white {hermes,claude}   which agent plays white
---black {hermes,claude}   which agent plays black
+--white {hermes,claude,scripted}   which agent plays white
+--black {hermes,claude,scripted}   which agent plays black
 --moves N                 stop after N plies (default: until the game ends)
 --per-move-seconds N      time budget per move before the agent forfeits the turn
 --tc MINUTES+INCREMENT    e.g. --tc 10+5. Omit for untimed play.
+--script "e4 e5 ..."      the SAN line a `scripted` player follows
 --gui / --no-gui          start the spectator server (default: on)
 --port PORT               spectator GUI port
 --dry-run                 exercise the whole pipeline with scripted moves, no LLM calls
 ```
 
 `--dry-run` is the fastest way to confirm the wiring before spending tokens.
+`scripted` is also usable as a real opponent without `--dry-run`, which is how
+you smoke-test one live agent against a deterministic line:
 
-## The tool surface
+```bash
+chess-play --white hermes --black scripted --moves 6 --no-gui -v
+```
+
+## Verified
+
+These are real runs, not claims:
+
+- A live Hermes agent played `e4`, `Nf3`, `Bc4` through the MCP arbiter against a
+  scripted opponent, with commentary, and carried one session across all three
+  of its turns.
+- Two MCP clients playing one board over real stdio, with a rejected illegal move
+  leaving the position untouched.
+- The spectator page rendering a position square-for-square against its FEN, and
+  receiving a move played by a separate process without a reload.
+- A two-process race for the same ply, where exactly one writer wins.
+
+| Suite | Covers |
+|---|---|
+| `tests/test_arbiter.py` | Rule enforcement: turn order, colour binding, legality, clocks, race safety |
+| `tests/test_mcp_stdio.py` | Real MCP over stdio: discovery, two clients, recoverable errors |
+| `tests/test_driver.py` | Agent adapters, prompts, forfeit policy, artifacts, "agent lied about moving" |
+| `tests/test_gui.py` | The spectator API against the arbiter's store |
+| `tests/test_ui_browser.py` | The page in a real browser (Playwright) |
+
+## Gotchas worth knowing
+
+- **`hermes mcp add` is interactive.** It prompts for tool selection and cancels
+  on a non-TTY. Pipe the answer: `printf 'y\n' | hermes mcp add chess ...`.
+- **`LLM_CHESS_HOME` does not reach agent MCP servers.** Hermes spawns MCP
+  subprocesses with a filtered environment, so a custom store path must be
+  re-declared on the MCP entry (`hermes mcp add ... --env LLM_CHESS_HOME=...`).
+  The driver warns when it sees the mismatch.
+- **`--max-turns`, `-Q` and `--yolo` are `hermes chat` flags, not top-level
+  ones.** At the top level Hermes fails argument parsing before the agent runs.
+- **Hermes prints its session id on stderr.** Capturing it there is what makes
+  per-side memory work; missing it silently degrades a game to stateless play,
+  and nothing looks broken because the moves still land.
+
+## Fairness properties
 
 Every player gets the same tools:
 
@@ -161,12 +203,13 @@ uv pip install --python .venv/bin/python -e ".[dev]"
 .venv/bin/python -m pytest -q
 ```
 
-The suite is 50 tests across four layers, and the split is deliberate:
+The suite is 70 tests across five layers, and the split is deliberate:
 
 | File | Covers |
 |---|---|
 | `tests/test_arbiter.py` | Rule enforcement — turn order, colour binding, legality, clocks, and a two-process race for the same ply |
 | `tests/test_mcp_stdio.py` | Real MCP over stdio: tool discovery, two clients playing one board, recoverable errors |
+| `tests/test_driver.py` | Agent adapters (Hermes/Claude argv and output parsing), prompts, forfeit policy, artifacts, and an agent that reports success without moving |
 | `tests/test_gui.py` | The spectator API against the arbiter's store |
 | `tests/test_ui_browser.py` | The page in a real browser (Playwright). Skips if playwright is absent. |
 

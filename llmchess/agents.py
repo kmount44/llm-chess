@@ -116,34 +116,63 @@ class HermesAgent(Agent):
     Turn one starts a fresh session; the session id is recovered by diffing the
     session list before and after, which is more reliable than assuming the
     newest session is ours. Every later turn resumes that exact session.
+
+    ``--max-turns``, ``-Q`` and ``--yolo`` belong to the ``chat`` subcommand, not
+    the top-level ``hermes`` command — passing them at the top level fails
+    argument parsing before the agent ever runs.
     """
 
     name = "hermes"
 
-    def __init__(self, **kw: Any):
+    def __init__(self, *, max_turns: int = 14, yolo: bool = True, **kw: Any):
         super().__init__(**kw)
+        self.max_turns = max_turns
+        self.yolo = yolo
         self._known_sessions: set[str] = set()
 
     def _hermes(self) -> str:
         return os.environ.get("LLM_CHESS_HERMES_BIN", "hermes")
 
     def _argv(self, prompt: str) -> list[str]:
-        argv = [self._hermes()]
+        argv = [self._hermes(), "chat", "-q", prompt, "-Q", "--max-turns", str(self.max_turns)]
         if self.session_id:
             argv += ["--resume", self.session_id]
-        argv += ["-z", prompt, "--max-turns", "14", "-Q"]
+        if self.yolo:
+            argv.append("--yolo")
+        # The run budget bounds a single turn even if --max-turns is not reached.
+        argv += ["--run-budget", str(max(30, self.per_move_seconds))]
         argv += self.extra
         return argv
 
     def _list_sessions(self) -> set[str]:
         try:
             proc = subprocess.run(
-                [self._hermes(), "sessions", "list", "--source", "cli", "--limit", "25"],
+                # No --source filter: sessions created by `hermes chat` are not
+                # tagged 'cli', so filtering by source hides the one we want.
+                [self._hermes(), "sessions", "list", "--limit", "25"],
                 capture_output=True, text=True, timeout=60, env={**os.environ},
             )
         except (OSError, subprocess.TimeoutExpired):
             return set()
         return set(SESSION_ID_RE.findall(proc.stdout))
+
+    def _parse(self, stdout: str, stderr: str) -> TurnResult:
+        reply = stdout.strip()
+        # `hermes chat -Q` prints "session_id: <id>" on STDERR and the answer on
+        # stdout. Scan both, anchored on the label — a bare id is ambiguous,
+        # because game ids have exactly the same shape.
+        combined = f"{stdout}\n{stderr}"
+        if reply.startswith("usage: hermes") or "error: argument" in combined:
+            return TurnResult(ok=False, reply=reply or stderr.strip(),
+                              error=combined.strip().splitlines()[-1][:400])
+
+        session = self.session_id
+        if match := re.search(r"session_id:\s*([\w-]+)", combined):
+            session = match.group(1)
+        if not reply and stderr.strip():
+            reply = stderr.strip()
+        return TurnResult(ok=bool(reply), reply=reply, session_id=session,
+                          error=None if reply else "empty response")
 
     def take_turn(self, prompt: str) -> TurnResult:
         before = self._list_sessions() if not self.session_id else set()
@@ -158,15 +187,6 @@ class HermesAgent(Agent):
                 self.session_id = match.group(1)
                 result.session_id = self.session_id
         return result
-
-    def _parse(self, stdout: str, stderr: str) -> TurnResult:
-        reply = stdout.strip()
-        if not reply and stderr.strip():
-            # On a non-TTY the banner/status noise goes to stderr; the answer is
-            # what landed on stdout. Only fall back when stdout is empty.
-            reply = stderr.strip()
-        return TurnResult(ok=bool(reply), reply=reply, session_id=self.session_id,
-                          error=None if reply else "empty response")
 
 
 class ClaudeAgent(Agent):
@@ -257,16 +277,19 @@ def build_agent(
     script: list[str] | None = None,
     color: str | None = None,
 ) -> Agent:
-    if dry_run:
+    if dry_run or name == "scripted":
         # A single SAN line describes the whole game; each side gets its half.
-        line = list(script or [])
+        # Usable outside --dry-run too: a scripted opponent is how you smoke-test
+        # one live agent without paying for two. Accept the line as a string as
+        # well as a list — iterating a raw string yields characters, not moves.
+        line = script.split() if isinstance(script, str) else list(script or [])
         mine = line[0::2] if color == "white" else line[1::2]
         return ScriptedAgent(mine, workdir=workdir, per_move_seconds=per_move_seconds)
     if name == "hermes":
         return HermesAgent(workdir=workdir, per_move_seconds=per_move_seconds)
     if name == "claude":
         return ClaudeAgent(workdir=workdir, per_move_seconds=per_move_seconds)
-    raise ValueError(f"unknown agent '{name}' (expected 'hermes' or 'claude')")
+    raise ValueError(f"unknown agent '{name}' (expected 'hermes', 'claude' or 'scripted')")
 
 
-KNOWN_AGENTS = ("hermes", "claude")
+KNOWN_AGENTS = ("hermes", "claude", "scripted")
