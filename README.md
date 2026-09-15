@@ -171,6 +171,10 @@ other machine before spending tokens:
 ./scripts/remote-bot.py --url http://<host>:8790/mcp --moves e5 Nc6 Nf6
 ```
 
+Run it from the repo root. It is executable and hands off to the repo's `.venv`
+if you invoke it with a stock `python3`, so the command above works as written;
+if no virtualenv exists it says so rather than dying with an `ImportError`.
+
 It also survives a dropped link rather than dying: a lost transport is reported
 with the likely cause and retried with backoff. That is safe because the game
 lives in the arbiter's store, not in the client — which is worth saying plainly,

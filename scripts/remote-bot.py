@@ -27,9 +27,60 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+from pathlib import Path
 
-import anyio
+
+def _ensure_deps() -> None:
+    """Hand off to the repo's virtualenv when run with a bare python3.
+
+    This file is executable and carries a ``#!/usr/bin/env python3`` shebang, so
+    ``./scripts/remote-bot.py`` runs under whatever python3 is on PATH — which
+    does not have anyio. Rather than die with a ModuleNotFoundError that looks
+    like a broken script, re-exec under the venv the installer created.
+    """
+    try:
+        import anyio  # noqa: F401
+        return
+    except ModuleNotFoundError:
+        pass
+
+    script = Path(__file__).resolve()
+    venv_dir = script.parent.parent / ".venv"
+
+    # Are we already running under that venv? Ask sys.prefix. Comparing
+    # resolved paths is tempting and wrong: a venv's bin/python is a symlink to
+    # the interpreter it was built from, so resolving collapses two *different*
+    # venvs onto the same base binary and the check always answers "yes,
+    # already there" — which means no handoff ever happens.
+    if Path(sys.prefix) == venv_dir:
+        raise SystemExit(
+            "error: anyio is missing from the repo virtualenv, which should not "
+            "happen.\n"
+            "  fix: ./scripts/install-mac.sh"
+        )
+
+    for name in ("python", "python3"):
+        candidate = venv_dir / "bin" / name
+        if candidate.exists():
+            # execv, not a subprocess: this replaces the process, so the exit
+            # code, signals and streaming output all behave as the caller expects.
+            os.execv(str(candidate), [str(candidate), str(script), *sys.argv[1:]])
+            return  # not reached
+
+    raise SystemExit(
+        "error: required packages are not importable and no usable virtualenv "
+        "was found.\n"
+        f"  looked for: {venv_dir / 'bin' / 'python'}\n"
+        "  fix: run ./scripts/install-mac.sh, or invoke it explicitly:\n"
+        "       .venv/bin/python scripts/remote-bot.py --url ... --moves ..."
+    )
+
+
+_ensure_deps()
+
+import anyio  # noqa: E402  (must come after _ensure_deps)
 
 DONE = "done"
 LOST = "lost"

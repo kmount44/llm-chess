@@ -87,3 +87,67 @@ def test_bot_fails_cleanly_when_nothing_is_listening():
     # A wall of traceback is the thing we are trying to avoid.
     assert "Traceback (most recent call last)" not in combined
     assert "ExceptionGroup" not in combined
+
+
+# --------------------------------------------------------------------------- #
+# running it the way a human would
+# --------------------------------------------------------------------------- #
+
+BARE_VENV = Path("/tmp/llm-chess-bare-venv")
+
+
+@pytest.fixture(scope="module")
+def bare_python() -> str:
+    """An interpreter with no third-party packages — i.e. a stock python3.
+
+    The script is executable with a `#!/usr/bin/env python3` shebang, so
+    `./scripts/remote-bot.py` runs under PATH's python, not the repo venv. A
+    scratch venv reproduces that without depending on what the host happens to
+    have installed, which is what makes this test meaningful on a machine whose
+    system python already has anyio.
+    """
+    if not (BARE_VENV / "bin" / "python").exists():
+        subprocess.run([sys.executable, "-m", "venv", str(BARE_VENV)], check=True)
+    py = BARE_VENV / "bin" / "python"
+    probe = subprocess.run([str(py), "-c", "import anyio"], capture_output=True)
+    assert probe.returncode != 0, "scratch venv unexpectedly has anyio"
+    return str(py)
+
+
+def test_running_with_a_stock_python_hands_off_to_the_repo_venv(bare_python):
+    """The advertised `./scripts/remote-bot.py ...` must work, not blow up.
+
+    Before this, it died with ModuleNotFoundError: no module named 'anyio',
+    which reads as a broken script rather than a wrong interpreter.
+    """
+    port = _unused_port()
+    proc = subprocess.run(
+        [bare_python, str(SCRIPT),
+         "--url", f"http://127.0.0.1:{port}/mcp",
+         "--moves", "e5", "--retries", "0"],
+        capture_output=True, text=True, timeout=180,
+        env={**os.environ},
+    )
+    combined = proc.stdout + proc.stderr
+    assert "No module named 'anyio'" not in combined, combined
+    # Getting as far as a connection error proves the handoff happened: the
+    # script only reaches that code path with its dependencies importable.
+    assert "cannot reach the arbiter" in combined, combined
+
+
+def test_clear_error_when_there_is_no_venv_to_hand_off_to(bare_python, tmp_path):
+    """A copy of the script with no sibling .venv should say what to do."""
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    copied = scripts / "remote-bot.py"
+    copied.write_text(SCRIPT.read_text())
+
+    proc = subprocess.run(
+        [bare_python, str(copied), "--url", "http://127.0.0.1:1/mcp"],
+        capture_output=True, text=True, timeout=120,
+        env={**os.environ},
+    )
+    combined = proc.stdout + proc.stderr
+    assert "no usable virtualenv" in combined, combined
+    assert "install-mac.sh" in combined
+    assert "Traceback (most recent call last)" not in combined
