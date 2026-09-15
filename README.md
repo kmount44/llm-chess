@@ -171,6 +171,13 @@ other machine before spending tokens:
 ./scripts/remote-bot.py --url http://<host>:8790/mcp --moves e5 Nc6 Nf6
 ```
 
+It also survives a dropped link rather than dying: a lost transport is reported
+with the likely cause and retried with backoff. That is safe because the game
+lives in the arbiter's store, not in the client — which is worth saying plainly,
+since it is the same property that makes the whole design fair. Verified by
+killing the arbiter under a parked bot: it reported the loss, backed off, and
+resumed the same game against the restarted arbiter.
+
 Binding is not a formality. `--serve` accepts only the Host headers you name
 (`--allow-host`), which is why `serve-match.sh` passes the tailnet address
 explicitly — reach the server by an address you did not allow and it is refused.
@@ -273,13 +280,14 @@ uv pip install --python .venv/bin/python -e ".[dev]"
 .venv/bin/python -m pytest -q
 ```
 
-The suite is 86 tests across six layers, and the split is deliberate:
+The suite is 92 tests across seven layers, and the split is deliberate:
 
 | File | Covers |
 |---|---|
 | `tests/test_arbiter.py` | Rule enforcement — turn order, colour binding, legality, clocks, `wait_for_turn`, and a two-process race for the same ply |
 | `tests/test_mcp_stdio.py` | Real MCP over stdio: tool discovery, two clients playing one board, recoverable errors |
 | `tests/test_mcp_http.py` | Real MCP over HTTP: servers as subprocesses, one identity per port, remote turn enforcement, bearer auth, Host-header guard |
+| `tests/test_remote_bot.py` | The connectivity script: error unwrapping, actionable advice, clean failure with no arbiter listening |
 | `tests/test_driver.py` | Agent adapters (Hermes/Claude argv and output parsing), prompts, forfeit policy, artifacts, and an agent that reports success without moving |
 | `tests/test_gui.py` | The spectator API against the arbiter's store |
 | `tests/test_ui_browser.py` | The page in a real browser (Playwright). Skips if playwright is absent. |
