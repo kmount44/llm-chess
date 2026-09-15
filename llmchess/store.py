@@ -258,9 +258,32 @@ def resolve_game(game_id: str | None = None, *, clients: list[str] | None = None
     """
     if game_id:
         g = get_game(game_id)
-        if not g:
+        if g:
+            return g
+        # The GUI shows only the tail of an id, and people read ids to agents
+        # that way, so accept an unambiguous fragment. LIKE would treat the
+        # underscores in an id as wildcards, hence the explicit escape.
+        frag = game_id.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        conn = connect()
+        try:
+            rows = conn.execute(
+                "SELECT id FROM games WHERE id LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\'"
+                " ORDER BY created DESC",
+                (f"%{frag}", f"{frag}%"),
+            ).fetchall()
+        finally:
+            conn.close()
+        if len(rows) == 1:
+            g = get_game(rows[0]["id"])
+            if g:
+                return g
+        if not rows:
             raise LookupError(f"no such game: {game_id}")
-        return g
+        options = ", ".join(r["id"] for r in rows[:6])
+        raise LookupError(
+            f"'{game_id}' matches {len(rows)} games. Use a longer fragment or the"
+            f" full id — candidates: {options}"
+        )
 
     gid = active_game_id()
     if gid:

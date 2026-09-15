@@ -237,6 +237,12 @@ These are real runs, not claims:
   `python -c "import yaml;yaml.safe_load(open('...'))"` after any manual change.
 - **`wait_for_turn` blocks the tool call.** Keep the client's MCP timeout above
   the `timeout` you pass, or the transport gives up before the arbiter does.
+- **The GUI shows only the tail of a game id, and the arbiter accepts it.** A
+  fragment like `421f54` resolves to the full `20260915_112801_421f54`. An
+  ambiguous fragment fails loudly and lists the candidates rather than guessing.
+  Before this, reading a short id off the GUI and giving it to an agent produced
+  "no such game", which looks exactly like the server being unreachable when the
+  arbiter is in fact perfectly healthy.
 
 ## The tool surface
 
@@ -284,7 +290,7 @@ uv pip install --python .venv/bin/python -e ".[dev]"
 .venv/bin/python -m pytest -q
 ```
 
-The suite is 92 tests across seven layers, and the split is deliberate:
+The suite is 110 tests across seven layers, and the split is deliberate:
 
 | File | Covers |
 |---|---|

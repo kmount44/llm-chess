@@ -367,3 +367,56 @@ def test_wait_for_turn_returns_as_soon_as_the_turn_arrives(game):
     assert out["your_color"] == "black"
     assert out["ply"] == 1
     assert elapsed < 10, f"woke slowly: {elapsed:.1f}s"
+
+
+# --------------------------------------------------------------------------- #
+# short ids
+#
+# The GUI shows only the tail of an id, and people read ids to agents that way,
+# so an agent handed "421f54" must find "20260915_112801_421f54" rather than
+# being told the game does not exist.
+# --------------------------------------------------------------------------- #
+
+
+def test_a_short_tail_resolves_to_the_game(game):
+    assert store.resolve_game(game["id"][-6:])["id"] == game["id"]
+
+
+def test_the_full_id_still_resolves(game):
+    assert store.resolve_game(game["id"])["id"] == game["id"]
+
+
+def test_a_prefix_fragment_resolves(game):
+    assert store.resolve_game(game["id"][:8])["id"] == game["id"]
+
+
+def test_like_wildcards_are_escaped(game):
+    """'%' must stay literal.
+
+    Unescaped it would match every game at once and report an ambiguity where
+    the honest answer is "there is no game called '%'".
+    """
+    with pytest.raises(LookupError, match="no such game"):
+        store.resolve_game("%")
+
+
+def test_an_ambiguous_fragment_names_the_candidates():
+    a = store.create_game("hermes", "claude")
+    b = store.create_game("hermes", "claude")
+    with pytest.raises(LookupError) as exc:
+        store.resolve_game(a[:4])
+    message = str(exc.value)
+    assert "matches 2 games" in message
+    assert a in message and b in message
+
+
+def test_an_unknown_fragment_is_reported_plainly():
+    with pytest.raises(LookupError, match="no such game: zzzzzz"):
+        store.resolve_game("zzzzzz")
+
+
+def test_a_short_id_reaches_the_arbiter(game):
+    """The whole point: a client can move using the short id it was given."""
+    out = arbiter.move("hermes", "e4", game["id"][-6:])
+    assert out["played"] == "e4"
+    assert store.get_game(game["id"])["ply"] == 1
