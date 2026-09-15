@@ -15,10 +15,12 @@ GAME_ID="${1:?usage: play-claude.sh GAME_ID [MAX_MOVES]}"
 MAX_MOVES="${2:-80}"
 CLAUDE_BIN="${LLM_CHESS_CLAUDE_BIN:-claude}"
 SERVER="${LLM_CHESS_MCP_NAME:-chess}"
-# Claude Code matches this against tool names. Some builds want the bare server
-# prefix and others need the glob, so it stays overridable rather than being
-# guessed at here.
-ALLOWED_TOOLS="${LLM_CHESS_ALLOWED_TOOLS:-mcp__${SERVER}}"
+# Claude Code treats --allowedTools as a whitelist: tools that do not match are
+# hidden from the model entirely, which it then reports as "the chess MCP tools
+# are not available". Since the exact naming form varies between builds, the
+# default is to pass no restriction at all and let Claude's own permission
+# settings govern. Set LLM_CHESS_ALLOWED_TOOLS to pin it explicitly.
+ALLOWED_TOOLS="${LLM_CHESS_ALLOWED_TOOLS-}"
 
 PROMPT="You are playing a chess game (game_id ${GAME_ID}) through the '${SERVER}' MCP tools. \
 Do this, in order, every turn:
@@ -41,13 +43,18 @@ while [ "$played" -lt "$MAX_MOVES" ]; do
     resume_args=(--resume "$session_id")
   fi
 
+  allowed_args=()
+  if [ -n "$ALLOWED_TOOLS" ]; then
+    allowed_args=(--allowedTools "$ALLOWED_TOOLS")
+  fi
+
   # ${arr[@]+"${arr[@]}"} and not plain "${arr[@]}": macOS ships bash 3.2, and
   # there expanding an empty array under `set -u` aborts with "unbound
   # variable". The guard expands to nothing when the array is empty, which is
   # the first turn of every game. Bash 4.4+ made the bare form legal, so this
   # only bites on the Mac.
   out="$("$CLAUDE_BIN" -p "$PROMPT" --output-format json \
-        --allowedTools "$ALLOWED_TOOLS" ${resume_args[@]+"${resume_args[@]}"} 2>/dev/null || true)"
+        ${allowed_args[@]+"${allowed_args[@]}"} ${resume_args[@]+"${resume_args[@]}"} 2>/dev/null || true)"
 
   if [ -z "$out" ]; then
     echo "no output from claude; retrying in 5s" >&2

@@ -104,17 +104,43 @@ def test_game_over_ends_the_loop(tmp_path):
     assert len(argv_log.read_text().splitlines()) == 1
 
 
-def test_script_passes_the_game_id_and_expected_tools_to_claude(tmp_path):
+def test_script_passes_the_game_id_to_claude(tmp_path):
     argv_log = tmp_path / "argv.log"
     stub = _write_stub(tmp_path, [{"session_id": "s1", "result": "ok"}], argv_log)
 
-    proc = _run(stub, "20260915_093311_0055be", "1", LLM_CHESS_MCP_NAME="chess")
+    proc = _run(stub, "20260915_093311_0055be", "1")
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
     (call,) = [json.loads(line) for line in argv_log.read_text().splitlines()]
-    joined = " ".join(call)
-    assert "20260915_093311_0055be" in joined, "the prompt must name the game"
-    assert "mcp__chess" in call, "only the chess MCP tools may be allowed"
+    assert "20260915_093311_0055be" in " ".join(call), "the prompt must name the game"
+
+
+def test_no_tool_whitelist_by_default(tmp_path):
+    """No --allowedTools unless asked for.
+
+    Claude Code treats it as a whitelist and hides tools that do not match, so
+    the model reports the chess tools as missing. Passing a guessed pattern
+    blind is worse than passing none.
+    """
+    argv_log = tmp_path / "argv.log"
+    stub = _write_stub(tmp_path, [{"session_id": "s1", "result": "ok"}], argv_log)
+
+    proc = _run(stub, "GAME3", "1")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+    (call,) = [json.loads(line) for line in argv_log.read_text().splitlines()]
+    assert "--allowedTools" not in call, call
+
+
+def test_allowlist_is_passed_through_when_set(tmp_path):
+    argv_log = tmp_path / "argv.log"
+    stub = _write_stub(tmp_path, [{"session_id": "s1", "result": "ok"}], argv_log)
+
+    proc = _run(stub, "GAME4", "1", LLM_CHESS_ALLOWED_TOOLS="mcp__chess__*")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+    (call,) = [json.loads(line) for line in argv_log.read_text().splitlines()]
+    assert "--allowedTools" in call and "mcp__chess__*" in call, call
 
 
 # --------------------------------------------------------------------------- #
