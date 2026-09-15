@@ -26,12 +26,24 @@ Do this, in order, every turn:
    If the move is rejected, read the error and try another; the position is unchanged.
 Do not play out of turn. Do not guess the move before reading the board."
 
-resume_args=()
+# Claude's session id, kept across turns so it remembers the game. Empty until
+# the first turn completes, which is why the resume flag is built conditionally.
+session_id=""
 played=0
 
 while [ "$played" -lt "$MAX_MOVES" ]; do
+  resume_args=()
+  if [ -n "$session_id" ]; then
+    resume_args=(--resume "$session_id")
+  fi
+
+  # ${arr[@]+"${arr[@]}"} and not plain "${arr[@]}": macOS ships bash 3.2, and
+  # there expanding an empty array under `set -u` aborts with "unbound
+  # variable". The guard expands to nothing when the array is empty, which is
+  # the first turn of every game. Bash 4.4+ made the bare form legal, so this
+  # only bites on the Mac.
   out="$("$CLAUDE_BIN" -p "$PROMPT" --output-format json \
-        --allowedTools "mcp__${SERVER}" "${resume_args[@]}" 2>/dev/null || true)"
+        --allowedTools "mcp__${SERVER}" ${resume_args[@]+"${resume_args[@]}"} 2>/dev/null || true)"
 
   if [ -z "$out" ]; then
     echo "no output from claude; retrying in 5s" >&2
@@ -52,8 +64,8 @@ except Exception: print(""); raise SystemExit
 print(d.get("session_id") or "")' 2>/dev/null || true)"
 
   # Keep one session for the whole game so Claude remembers its own reasoning.
-  if [ -n "$sid" ] && [ "${#resume_args[@]}" -eq 0 ]; then
-    resume_args=(--resume "$sid")
+  if [ -n "$sid" ] && [ -z "$session_id" ]; then
+    session_id="$sid"
     echo "claude session: $sid"
   fi
 

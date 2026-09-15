@@ -52,10 +52,13 @@ fi
 
 start_one() {
   local client="$1" port="$2"
+  # TOKEN_ARGS is empty unless a token was set, and bash 3.2 (macOS) aborts on
+  # an empty array expansion under `set -u`, so it stays guarded here too even
+  # though this script normally runs on the Linux host.
   "$ARBITER" --client "$client" --serve \
     --host "$BIND" --port "$port" \
     --allow-host "$BIND" --allow-host "$BIND:$port" \
-    "${TOKEN_ARGS[@]}" \
+    ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} \
     >"$RUN_DIR/arbiter-$client.log" 2>&1 &
   echo $! >"$RUN_DIR/arbiter-$client.pid"
   echo "started $client arbiter on $BIND:$port (pid $(cat "$RUN_DIR/arbiter-$client.pid"))"
