@@ -143,6 +143,35 @@ def test_allowlist_is_passed_through_when_set(tmp_path):
     assert "--allowedTools" in call and "mcp__chess__*" in call, call
 
 
+def test_extra_claude_flags_reach_argv(tmp_path):
+    """The escape hatch for permission prompts must actually be passed through.
+
+    It is referenced under one name and set under another by an easy typo, and
+    bash is case-sensitive, so a mismatch is silent: the guard on the array just
+    expands to nothing and the flag never arrives.
+    """
+    argv_log = tmp_path / "argv.log"
+    stub = _write_stub(tmp_path, [{"session_id": "s1", "result": "ok"}], argv_log)
+
+    proc = _run(stub, "GAME5", "1",
+                LLM_CHESS_CLAUDE_EXTRA_ARGS="--dangerously-skip-permissions")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+    (call,) = [json.loads(line) for line in argv_log.read_text().splitlines()]
+    assert "--dangerously-skip-permissions" in call, call
+
+
+def test_no_extra_flags_are_passed_by_default(tmp_path):
+    argv_log = tmp_path / "argv.log"
+    stub = _write_stub(tmp_path, [{"session_id": "s1", "result": "ok"}], argv_log)
+
+    proc = _run(stub, "GAME6", "1")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+    (call,) = [json.loads(line) for line in argv_log.read_text().splitlines()]
+    assert not [a for a in call if a.startswith("--dangerously")], call
+
+
 # --------------------------------------------------------------------------- #
 # the macOS interpreter
 # --------------------------------------------------------------------------- #

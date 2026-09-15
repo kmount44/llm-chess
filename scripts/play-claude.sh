@@ -21,6 +21,11 @@ SERVER="${LLM_CHESS_MCP_NAME:-chess}"
 # default is to pass no restriction at all and let Claude's own permission
 # settings govern. Set LLM_CHESS_ALLOWED_TOOLS to pin it explicitly.
 ALLOWED_TOOLS="${LLM_CHESS_ALLOWED_TOOLS-}"
+# Space-separated extra flags for the claude CLI. The one that matters in
+# practice is --dangerously-skip-permissions: non-interactive runs have nobody
+# to answer "allow this MCP tool?" so the call is denied, and the model reports
+# it as a missing permission rather than a missing tool.
+extra_args=(${LLM_CHESS_CLAUDE_EXTRA_ARGS:-})
 
 PROMPT="You are playing a chess game (game_id ${GAME_ID}) through the '${SERVER}' MCP tools. \
 Do this, in order, every turn:
@@ -54,7 +59,7 @@ while [ "$played" -lt "$MAX_MOVES" ]; do
   # the first turn of every game. Bash 4.4+ made the bare form legal, so this
   # only bites on the Mac.
   out="$("$CLAUDE_BIN" -p "$PROMPT" --output-format json \
-        ${allowed_args[@]+"${allowed_args[@]}"} ${resume_args[@]+"${resume_args[@]}"} 2>/dev/null || true)"
+        ${allowed_args[@]+"${allowed_args[@]}"} ${extra_args[@]+"${extra_args[@]}"} ${resume_args[@]+"${resume_args[@]}"} 2>/dev/null || true)"
 
   if [ -z "$out" ]; then
     echo "no output from claude; retrying in 5s" >&2
