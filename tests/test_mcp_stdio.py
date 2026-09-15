@@ -58,8 +58,8 @@ def test_client_discovers_the_full_tool_surface():
     names = _run("hermes", body)
     assert names == sorted([
         "join_game", "get_board", "get_legal_moves", "make_move", "get_status",
-        "get_move_history", "resign_game", "offer_draw", "accept_draw",
-        "claim_draw", "get_evaluation",
+        "wait_for_turn", "get_move_history", "resign_game", "offer_draw",
+        "accept_draw", "claim_draw", "get_evaluation",
     ])
 
 

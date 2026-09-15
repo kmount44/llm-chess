@@ -297,3 +297,73 @@ def test_guarded_tool_returns_recoverable_error_not_a_crash(isolated_home):
         return {"turn": "white"}
 
     assert fine() == {"ok": True, "turn": "white"}
+
+
+# --------------------------------------------------------------------------- #
+# wait_for_turn — the primitive that replaces a cross-machine orchestrator
+# --------------------------------------------------------------------------- #
+
+
+def test_wait_for_turn_releases_the_side_on_move(game):
+    arbiter.start_game(game["id"])
+    out = arbiter.wait_for_turn("hermes", game["id"], timeout=2)
+    assert out["released"] == "your turn"
+    assert out["your_turn"] is True
+    assert out["your_color"] == "white"
+
+
+def test_wait_for_turn_does_not_release_before_the_game_starts(game):
+    """A created-but-unstarted game is not playable, even for white.
+
+    Otherwise a client that connects early would move before the clock starts.
+    """
+    out = arbiter.wait_for_turn("hermes", game["id"], timeout=0.4)
+    assert out["released"] == "timeout"
+    assert out["your_turn"] is False
+
+
+def test_wait_for_turn_times_out_without_claiming_it_is_your_turn(game):
+    arbiter.start_game(game["id"])
+    out = arbiter.wait_for_turn("claude", game["id"], timeout=0.4)
+    assert out["released"] == "timeout"
+    assert out["your_turn"] is False
+
+
+def test_wait_for_turn_stops_when_the_game_ends(game):
+    arbiter.start_game(game["id"])
+    arbiter.resign("hermes", game["id"], "testing")
+    out = arbiter.wait_for_turn("claude", game["id"], timeout=2)
+    assert out["released"] == "game over"
+    assert out["status"] == "finished"
+
+
+def test_wait_for_turn_refuses_a_spectator(game):
+    """A third party cannot wait for a turn it will never get."""
+    with pytest.raises(arbiter.ArbiterError) as exc:
+        arbiter.wait_for_turn("bystander", game["id"], timeout=0.2)
+    assert "spectator" in str(exc.value)
+
+
+def test_wait_for_turn_returns_as_soon_as_the_turn_arrives(game):
+    """It must wake on the opponent's move, not sit out the whole timeout."""
+    import time
+
+    arbiter.start_game(game["id"])
+
+    import threading
+
+    def opponent_moves():
+        time.sleep(0.5)
+        arbiter.move("hermes", "e4", game["id"])
+
+    t = threading.Thread(target=opponent_moves)
+    started = time.time()
+    t.start()
+    out = arbiter.wait_for_turn("claude", game["id"], timeout=20, poll=0.05)
+    elapsed = time.time() - started
+    t.join()
+
+    assert out["released"] == "your turn"
+    assert out["your_color"] == "black"
+    assert out["ply"] == 1
+    assert elapsed < 10, f"woke slowly: {elapsed:.1f}s"

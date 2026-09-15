@@ -68,30 +68,45 @@ cat <<EOF
 
 $(say "installed. Now register the arbiter with each player:")
 
-1) Claude Code — run this once:
+Registering with the CLI rather than hand-editing ~/.hermes/config.yaml is not
+just convenience: a single unbalanced quote in that file makes Hermes fall back
+to a stale backup and silently ignore your edit.
+
+A) Everyone on this machine
 
    claude mcp add chess -- $ARBITER --client claude
+   hermes mcp add chess --command $ARBITER --args --client hermes
 
-   Verify with: claude mcp list
+   Verify with: claude mcp list  /  hermes mcp list
+   Then play:   $VENV/bin/chess-play --white hermes --black claude --gui
 
-2) Hermes — add this under mcp_servers in ~/.hermes/config.yaml, then restart
-   Hermes (MCP servers are discovered at startup; there is no hot reload):
+B) Players on different machines
 
-   mcp_servers:
-     chess:
-       command: "$ARBITER"
-       args: ["--client", "hermes"]
-       timeout: 60
+   On the machine that will host the arbiters (it must own the game store):
 
-   Verify with: hermes mcp list
+     ./scripts/serve-match.sh
 
-3) Check both clients really see the tools, then play:
+   It binds both arbiters to the tailnet address and prints the exact command
+   for the other machine, which will look like:
 
-   $VENV/bin/chess-play --dry-run --no-gui     # no tokens, proves the wiring
-   $VENV/bin/chess-play --white hermes --black claude --gui
+     claude mcp add --transport http chess http://<tailnet-ip>:8790/mcp
 
-The spectator GUI prints a localhost URL when the match starts.
+   Then, from the host:
+     $VENV/bin/chess-play --white hermes --black claude --create-only
+     $VENV/bin/chess-play --white hermes --black claude   # or drive Hermes here
 
-Note: agents need to be able to use MCP tools without an interactive prompt,
-since the match runs unattended.
+   and on the player machine:
+     ./scripts/play-claude.sh <GAME_ID>
+
+   $VENV/bin/scripts/remote-bot.py --url http://<tailnet-ip>:8790/mcp \\
+       --moves e5 Nc6 Nf6
+
+   is a fast connectivity check for the other machine — if it connects and plays,
+   the network path and the arbiter both work.
+
+Playwright note: the browser test suite skips itself if playwright is absent:
+  $VENV/bin/python -m playwright install chromium
+
+Agents need to be able to use MCP tools without an interactive prompt, since a
+match runs unattended.
 EOF

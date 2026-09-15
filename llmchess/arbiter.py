@@ -429,3 +429,57 @@ def pgn(game_id: str | None = None) -> str:
     if not game:
         raise ArbiterError("no game to export")
     return rules.to_pgn(game, store.get_moves(game["id"]))
+
+
+def wait_for_turn(
+    client: str,
+    game_id: str | None = None,
+    *,
+    timeout: float = 240.0,
+    poll: float = 0.5,
+) -> dict[str, Any]:
+    """Block until it is this client's turn, the game ends, or the wait expires.
+
+    This is what lets two agents on different machines play without an
+    orchestrator: each side parks here, and the arbiter — which owns the turn
+    order anyway — decides when to release it. Nothing is delegated to a driver
+    process, so there is no third party to keep alive or to trust.
+
+    Returns the same payload as ``status`` plus a ``released`` field saying why
+    the call came back. ``released == "timeout"`` is not an error: the agent
+    should simply wait again.
+    """
+    game = store.resolve_game(game_id, clients=[client])
+    color = store.color_for_client(game, client)
+    if color is None:
+        raise ArbiterError(
+            f"'{client}' is a spectator in game {game['id']} "
+            f"({game['white_client']} vs {game['black_client']}); it cannot move."
+        )
+
+    deadline = time.time() + max(0.0, timeout)
+
+    def _release(reason: str) -> dict[str, Any]:
+        payload = status(client, game["id"])
+        # `status` reports whose turn it is by the board; the useful question
+        # here is "may I move now", which also requires the game to have
+        # started. Keeping them in step means an agent cannot act on a
+        # your_turn=true it was simultaneously told to keep waiting for.
+        payload["your_turn"] = reason == "your turn"
+        payload["released"] = reason
+        return payload
+
+    while True:
+        game = store.get_game(game["id"]) or game
+        if game["status"] == TERMINAL:
+            return _release("game over")
+
+        # A game that has been created but not started is not yet playable, so
+        # waiting is correct even for white.
+        if game["status"] == "active" and _turn(game) == color:
+            return _release("your turn")
+
+        if time.time() >= deadline:
+            return _release("timeout")
+
+        time.sleep(poll)

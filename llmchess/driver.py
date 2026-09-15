@@ -332,6 +332,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-gui", dest="gui", action="store_false")
     p.add_argument("--port", type=int, default=8787)
     p.add_argument("--dry-run", action="store_true", help="no LLM calls; play a scripted line")
+    p.add_argument("--create-only", action="store_true",
+                   help="create and start the game, print its id, and exit. Use this "
+                        "when the players connect themselves (e.g. over the network) "
+                        "instead of being driven from here.")
     p.add_argument("--script", default="e4 e5 Bc4 Nc6 Qh5 Nf6 Qxf7#",
                    help="space-separated SAN moves for --dry-run")
     p.add_argument("--auto-draw", action="store_true", default=True,
@@ -348,6 +352,18 @@ def main(argv: list[str] | None = None) -> int:
         args.script = args.script.split()
     if args.white == args.black:
         raise SystemExit("--white and --black must be different agents")
+
+    # A network match is created here and then played by the agents themselves,
+    # so neither CLI needs to be present on this machine for this to work.
+    if args.create_only:
+        initial_ms, increment_ms, tc = _parse_tc(args.tc)
+        game_id = store.create_game(
+            args.white, args.black,
+            time_control=tc, initial_ms=initial_ms, increment_ms=increment_ms,
+        )
+        arbiter.start_game(game_id)
+        print(game_id)
+        return 0
 
     # Agents reach the game through their own MCP server process, and Hermes
     # spawns MCP subprocesses with a filtered environment — LLM_CHESS_HOME does

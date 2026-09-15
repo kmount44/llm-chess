@@ -9,9 +9,14 @@ speaks for::
 Colour is *not* baked in at launch — it comes from the game record, so the same
 registered server can play either side and colours can be swapped between games.
 
-The transport is stdio, which is what both Claude Code and Hermes speak. The
-server itself is stateless between calls: the store holds the game, so a client
-that dies mid-game loses nothing but its own reasoning context.
+The transport is stdio by default, which is what both Claude Code and Hermes
+speak when the player runs on the same machine as the arbiter. Add `--serve` and
+the same server speaks streamable HTTP instead, so a player on another machine
+can connect to it over the network. Either way the arbiter and its store stay on
+one host: that is what keeps a single source of truth.
+
+The server itself is stateless between calls: the store holds the game, so a
+client that dies mid-game loses nothing but its own reasoning context.
 """
 
 from __future__ import annotations
@@ -116,6 +121,11 @@ def build_server(client: str) -> Any:
     def get_status(game_id: str | None = None) -> dict[str, Any]:
         return arbiter.status(client, game_id)
 
+    @server.tool(description="Block until it is your turn, the game ends, or the wait times out. This is how you play without polling: call it, then move if it says it is your turn.")
+    @_guard
+    def wait_for_turn(timeout: float = 240.0, game_id: str | None = None) -> dict[str, Any]:
+        return arbiter.wait_for_turn(client, game_id, timeout=timeout)
+
     @server.tool(description="SAN move list so far, in order.")
     @_guard
     def get_move_history(game_id: str | None = None) -> dict[str, Any]:
@@ -170,22 +180,128 @@ def build_server(client: str) -> Any:
     return server
 
 
+class _BearerAuth:
+    """Refuse HTTP requests that do not carry the expected bearer token.
+
+    Identity is already bound to the port a client connects to, so this is a
+    lock on the door rather than the security model itself. It is worth having
+    anyway: it stops a stray process on the network from playing someone else's
+    moves.
+    """
+
+    def __init__(self, app: Any, token: str) -> None:
+        self.app = app
+        self.token = token
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers") or []}
+        if headers.get("authorization") != f"Bearer {self.token}":
+            from starlette.responses import Response
+
+            await Response("unauthorized\n", status_code=401)(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
+def serve(
+    *,
+    client: str,
+    host: str,
+    port: int,
+    path: str,
+    token: str | None = None,
+    extra_hosts: list[str] | None = None,
+) -> int:
+    """Run the arbiter over streamable HTTP instead of stdio.
+
+    This is what lets the two players live on different machines. The arbiter
+    and its store stay on one host — that is the single source of truth — while
+    a client elsewhere connects to it over the network. One process per
+    identity, exactly as with stdio, so neither player can claim the other's
+    colour just by asking.
+    """
+    import uvicorn
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    server = build_server(client)
+
+    # Reaching the server by its tailnet address means the Host header is not
+    # localhost, which the default DNS-rebinding guard rejects. Allow exactly
+    # the addresses we intend to be reachable at.
+    allowed = [
+        "localhost", "127.0.0.1", "[::1]",
+        host, f"{host}:{port}",
+        "host.docker.internal",
+        *(extra_hosts or []),
+    ]
+    # Deduplicate while keeping order stable and readable.
+    allowed = list(dict.fromkeys(a for a in allowed if a))
+
+    security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=allowed,
+        allowed_origins=[f"http://{h}" for h in allowed] + [f"https://{h}" for h in allowed],
+    )
+
+    app = server.streamable_http_app(
+        streamable_http_path=path, host=host, transport_security=security
+    )
+    if token:
+        app = _BearerAuth(app, token)
+
+    scheme = "http"
+    print(f"llm-chess arbiter ({client}) → {scheme}://{host}:{port}{path}", flush=True)
+    print(f"  reachable hosts: {', '.join(allowed)}", flush=True)
+    print(f"  auth: {'bearer token required' if token else 'none (tailnet only)'}", flush=True)
+    uvicorn.run(app, host=host, port=port, log_level="warning")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="chess-arbiter",
-        description="MCP chess arbiter. One process per player identity.",
+        description="MCP chess arbiter, over stdio or streamable HTTP.",
     )
     parser.add_argument(
         "--client",
         default=os.environ.get("LLM_CHESS_CLIENT", "hermes"),
         help="Identity this server speaks for (must match a player name in the game record).",
     )
-    parser.add_argument("--transport", default="stdio", choices=["stdio"])
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        help="Serve over streamable HTTP instead of stdio (for players on other machines).",
+    )
+    parser.add_argument("--host", default="127.0.0.1", help="Bind address when serving.")
+    parser.add_argument("--port", type=int, default=8788, help="Bind port when serving.")
+    parser.add_argument("--path", default="/mcp", help="HTTP path for the MCP endpoint.")
+    parser.add_argument(
+        "--token",
+        default=os.environ.get("LLM_CHESS_TOKEN"),
+        help="Require this bearer token on HTTP requests.",
+    )
+    parser.add_argument(
+        "--allow-host",
+        action="append",
+        default=[],
+        help="Extra Host header to accept (repeatable).",
+    )
     args = parser.parse_args(argv)
 
-    server = build_server(args.client)
-    if args.transport == "stdio":
-        server.run("stdio")
+    if args.serve:
+        return serve(
+            client=args.client,
+            host=args.host,
+            port=args.port,
+            path=args.path,
+            token=args.token,
+            extra_hosts=args.allow_host,
+        )
+
+    build_server(args.client).run("stdio")
     return 0
 
 
