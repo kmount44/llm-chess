@@ -15,6 +15,10 @@ GAME_ID="${1:?usage: play-claude.sh GAME_ID [MAX_MOVES]}"
 MAX_MOVES="${2:-80}"
 CLAUDE_BIN="${LLM_CHESS_CLAUDE_BIN:-claude}"
 SERVER="${LLM_CHESS_MCP_NAME:-chess}"
+# Claude Code matches this against tool names. Some builds want the bare server
+# prefix and others need the glob, so it stays overridable rather than being
+# guessed at here.
+ALLOWED_TOOLS="${LLM_CHESS_ALLOWED_TOOLS:-mcp__${SERVER}}"
 
 PROMPT="You are playing a chess game (game_id ${GAME_ID}) through the '${SERVER}' MCP tools. \
 Do this, in order, every turn:
@@ -43,7 +47,7 @@ while [ "$played" -lt "$MAX_MOVES" ]; do
   # the first turn of every game. Bash 4.4+ made the bare form legal, so this
   # only bites on the Mac.
   out="$("$CLAUDE_BIN" -p "$PROMPT" --output-format json \
-        --allowedTools "mcp__${SERVER}" ${resume_args[@]+"${resume_args[@]}"} 2>/dev/null || true)"
+        --allowedTools "$ALLOWED_TOOLS" ${resume_args[@]+"${resume_args[@]}"} 2>/dev/null || true)"
 
   if [ -z "$out" ]; then
     echo "no output from claude; retrying in 5s" >&2

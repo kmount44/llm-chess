@@ -55,7 +55,11 @@ start_one() {
   # TOKEN_ARGS is empty unless a token was set, and bash 3.2 (macOS) aborts on
   # an empty array expansion under `set -u`, so it stays guarded here too even
   # though this script normally runs on the Linux host.
-  "$ARBITER" --client "$client" --serve \
+  # PYTHONUNBUFFERED: stdout is redirected to a file here, and Python block-
+  # buffers that, so session/error lines can sit in memory for a long time and
+  # the log reads as stale exactly when you need it. Unbuffered costs nothing
+  # at this volume.
+  PYTHONUNBUFFERED=1 "$ARBITER" --client "$client" --serve \
     --host "$BIND" --port "$port" \
     --allow-host "$BIND" --allow-host "$BIND:$port" \
     ${TOKEN_ARGS[@]+"${TOKEN_ARGS[@]}"} \
